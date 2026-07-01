@@ -1,30 +1,43 @@
 import { create } from 'zustand';
-import type { Widget } from './types';
+import type { Widget, WidgetType } from './types';
 
-// Phase-1 default layout. Subset of the PRD OOTB layout (Appendix A) —
-// clock, weather, quick notes — placed at visually balanced coordinates.
+let nextWidgetId = 4;
+
+function widgetDefaults(type: WidgetType): Pick<Widget, 'width' | 'height' | 'config'> {
+  switch (type) {
+    case 'clock':
+      return { width: 330, height: 210, config: {} };
+    case 'weather':
+      return { width: 330, height: 270, config: { city: 'San Francisco' } };
+    case 'notes':
+      return {
+        width: 400,
+        height: 480,
+        config: { text: 'Quick notes\n\nDrag me by the header. Type here to jot things down.' },
+      };
+  }
+}
+
+function makeWidget(type: WidgetType, patch: Partial<Widget> = {}): Widget {
+  const defaults = widgetDefaults(type);
+  return {
+    id: patch.id ?? `${type}-${nextWidgetId++}`,
+    type,
+    x: patch.x ?? 70,
+    y: patch.y ?? 70,
+    width: patch.width ?? defaults.width,
+    height: patch.height ?? defaults.height,
+    zIndex: patch.zIndex ?? 1,
+    config: patch.config ?? defaults.config,
+  };
+}
+
+// Phase-1 default layout. Subset of the PRD OOTB layout, placed at visually
+// balanced coordinates.
 const DEFAULT_WIDGETS: Widget[] = [
-  { id: 'clock-1', type: 'clock', x: 50, y: 50, width: 330, height: 210, zIndex: 1, config: {} },
-  {
-    id: 'weather-1',
-    type: 'weather',
-    x: 50,
-    y: 280,
-    width: 330,
-    height: 270,
-    zIndex: 2,
-    config: { city: 'San Francisco' },
-  },
-  {
-    id: 'notes-1',
-    type: 'notes',
-    x: 400,
-    y: 50,
-    width: 400,
-    height: 480,
-    zIndex: 3,
-    config: { text: 'Quick notes\n\nDrag me by the header. Type here to jot things down.' },
-  },
+  makeWidget('clock', { id: 'clock-1', x: 50, y: 50, zIndex: 1 }),
+  makeWidget('weather', { id: 'weather-1', x: 50, y: 280, zIndex: 2 }),
+  makeWidget('notes', { id: 'notes-1', x: 400, y: 50, zIndex: 3 }),
 ];
 
 // CSS-filter knobs applied to the background image (not the widgets).
@@ -64,6 +77,7 @@ interface DashboardState {
   moveWidget: (id: string, x: number, y: number) => void;
   resizeWidget: (id: string, width: number, height: number) => void;
   removeWidget: (id: string) => void;
+  addWidget: (type: WidgetType) => void;
   bringToFront: (id: string) => void;
   updateConfig: (id: string, patch: Record<string, unknown>) => void;
   setCanvasBg: (url: string | null) => void;
@@ -105,6 +119,22 @@ export const useDashboard = create<DashboardState>((set) => ({
     set((s) => ({
       widgets: s.widgets.filter((w) => w.id !== id),
     })),
+
+  addWidget: (type) =>
+    set((s) => {
+      const max = Math.max(0, ...s.widgets.map((w) => w.zIndex));
+      const offset = s.widgets.length % 8;
+      return {
+        widgets: [
+          ...s.widgets,
+          makeWidget(type, {
+            x: 80 + offset * 42,
+            y: 80 + offset * 34,
+            zIndex: max + 1,
+          }),
+        ],
+      };
+    }),
 
   bringToFront: (id) =>
     set((s) => {
