@@ -12,6 +12,9 @@
   --color-muted: #756f66;
   --color-accent: #e84e5b;
   --color-paperline: #cfc5b5;
+  /* Status colors: paired with ▲/▼/● glyphs so meaning never rides on color alone. */
+  --color-up: #1e7a46;
+  --color-down: #c22f43;
 }
 
 html,
@@ -281,6 +284,119 @@ body {
   opacity: 0.9;
 }
 
+.widget-gear {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-brdr);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.widget-gear:hover,
+.widget-gear:focus-visible {
+  background: var(--color-accent);
+  color: #fffaf0;
+  outline: none;
+}
+
+.widget-pin {
+  font-size: 12px;
+  filter: grayscale(1);
+}
+
+.widget-pin-active,
+.widget-pin-active:hover,
+.widget-pin-active:focus-visible {
+  background: var(--color-accent);
+  filter: none;
+}
+
+.market-panel {
+  border: 3px solid var(--color-brdr);
+  border-radius: 10px;
+  background: var(--color-card);
+  box-shadow:
+    10px 10px 0 rgba(31, 28, 24, 0.28),
+    inset 0 0 0 1px rgba(232, 78, 91, 0.14);
+}
+
+.market-cat {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  padding: 0.45rem 0.6rem;
+  margin-bottom: 2px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--color-ink);
+  cursor: pointer;
+  background: transparent;
+}
+
+.market-cat:hover {
+  border-color: var(--color-brdr);
+  background: rgba(255, 250, 240, 0.9);
+}
+
+.market-cat-active {
+  border-color: var(--color-brdr);
+  background: var(--color-accent);
+  color: #fffaf0;
+  box-shadow: 2px 2px 0 rgba(31, 28, 24, 0.2);
+}
+
+.market-card {
+  border: 2px solid var(--color-brdr);
+  border-radius: 8px;
+  background: rgba(255, 250, 240, 0.92);
+  box-shadow: 4px 4px 0 rgba(31, 28, 24, 0.14);
+  transition: transform 140ms ease, box-shadow 140ms ease;
+}
+
+.market-card:hover {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 rgba(31, 28, 24, 0.2);
+}
+
+.market-badge {
+  border: 2px solid var(--color-brdr);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: var(--color-ink);
+  background: var(--color-bg);
+  white-space: nowrap;
+}
+
+.market-tag {
+  border: 2px dashed var(--color-brdr);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.market-tag-live {
+  border-style: solid;
+  border-color: var(--color-up);
+  color: var(--color-up);
+}
+
 .widget-close-mark {
   position: relative;
   width: 20px;
@@ -353,26 +469,30 @@ body {
     var(--color-card);
 }
 
-.analog-clock::before,
-.analog-clock::after {
-  content: '';
+/* Live hands: rotation set inline from the zone-adjusted time each second. */
+.clock-hand {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 4px;
   transform-origin: 50% 100%;
   background: var(--color-brdr);
   border-radius: 999px;
 }
 
-.analog-clock::before {
-  height: 28px;
-  transform: translate(-50%, -100%) rotate(125deg);
+.clock-hand-hour {
+  width: 4px;
+  height: 22px;
 }
 
-.analog-clock::after {
+.clock-hand-minute {
+  width: 4px;
+  height: 32px;
+}
+
+.clock-hand-second {
+  width: 2px;
   height: 36px;
-  transform: translate(-50%, -100%) rotate(305deg);
+  background: var(--color-accent);
 }
 
 .weather-line-icon {

@@ -1,6 +1,6 @@
 import { Canvas } from './Canvas';
 import { BgPanel } from './BgPanel';
-import { WidgetPicker } from './WidgetPicker';
+import { Marketplace } from './Marketplace';
 
 export function App() {
   return (
@@ -11,10 +11,10 @@ export function App() {
           <span className="hidden h-8 w-px rotate-12 bg-brdr/60 sm:block" />
         </div>
         <span className="max-w-[36rem] text-[12px] font-bold uppercase leading-snug text-muted">
-          place anything, anywhere - drag a widget by its header
+          place anything, anywhere - 160+ widgets, live APIs, webhooks &amp; more
         </span>
         <div className="ml-auto flex items-center gap-2">
-          <WidgetPicker />
+          <Marketplace />
           <BgPanel />
         </div>
       </header>

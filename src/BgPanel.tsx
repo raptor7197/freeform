@@ -1,4 +1,4 @@
-import { useRef, useState, type ChangeEvent } from 'react';
+import { useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useDashboard, type CanvasFilters } from './store';
 
 const SLIDERS: {
@@ -26,23 +26,49 @@ const btn =
 
 export function BgPanel() {
   const canvasBg = useDashboard((s) => s.canvasBg);
+  const canvasBgKind = useDashboard((s) => s.canvasBgKind);
   const setCanvasBg = useDashboard((s) => s.setCanvasBg);
   const filters = useDashboard((s) => s.canvasFilters);
   const setCanvasFilters = useDashboard((s) => s.setCanvasFilters);
   const resetCanvasFilters = useDashboard((s) => s.resetCanvasFilters);
   const fileRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
 
-  const onPick = (e: ChangeEvent<HTMLInputElement>) => {
+  const onPickImage = (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     e.target.value = ''; // let the same file be re-picked later
     if (!f) return;
     const reader = new FileReader();
     reader.onload = () => {
-      setCanvasBg(reader.result as string);
+      setCanvasBg(reader.result as string, 'image');
       setOpen(true);
     };
     reader.readAsDataURL(f);
+  };
+
+  const onPickVideo = (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    if (canvasBgKind === 'video' && canvasBg) URL.revokeObjectURL(canvasBg);
+    setCanvasBg(URL.createObjectURL(f), 'video');
+    setOpen(true);
+  };
+
+  const clear = () => {
+    if (canvasBgKind === 'video' && canvasBg) URL.revokeObjectURL(canvasBg);
+    setCanvasBg(null);
+  };
+
+  const [videoUrl, setVideoUrl] = useState('');
+  const onVideoUrl = (e: FormEvent) => {
+    e.preventDefault();
+    const url = videoUrl.trim();
+    if (!url) return;
+    if (canvasBgKind === 'video' && canvasBg?.startsWith('blob:')) URL.revokeObjectURL(canvasBg);
+    setCanvasBg(url, 'video');
+    setOpen(true);
   };
 
   const set = (key: keyof CanvasFilters, v: number) =>
@@ -51,25 +77,32 @@ export function BgPanel() {
   return (
     <div className="relative flex items-center gap-2">
       <button className={btn} onClick={() => fileRef.current?.click()}>
-        Upload
+        Image
+      </button>
+      <button className={btn} onClick={() => videoRef.current?.click()}>
+        Video
+      </button>
+      <button className={btn} onClick={() => setCanvasBg('shader-gradient', 'shader')}>
+        Shader
       </button>
       {canvasBg && (
         <>
           <button className={btn} onClick={() => setOpen((o) => !o)}>
             Adjust
           </button>
-          <button className={btn} onClick={() => setCanvasBg(null)}>
+          <button className={btn} onClick={clear}>
             Clear
           </button>
         </>
       )}
-      <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPick} />
+      <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickImage} />
+      <input ref={videoRef} type="file" accept="video/*" className="hidden" onChange={onPickVideo} />
 
       {open && canvasBg && (
         <div className="studio-popover absolute right-0 top-full z-50 mt-3 w-72 p-4">
           <div className="mb-3 flex items-center justify-between">
             <span className="text-xs font-black uppercase text-accent">
-              Background
+              Background {canvasBgKind !== 'image' ? `(${canvasBgKind})` : ''}
             </span>
             <button
               className="text-[11px] font-bold uppercase text-muted hover:text-accent"
@@ -78,6 +111,18 @@ export function BgPanel() {
               Reset
             </button>
           </div>
+
+          <form className="mb-3 flex gap-2" onSubmit={onVideoUrl}>
+            <input
+              className="studio-input min-w-0 flex-1 px-2 py-1.5 text-[12px] font-bold"
+              placeholder="Video URL (mp4, webm)…"
+              value={videoUrl}
+              onChange={(e) => setVideoUrl(e.target.value)}
+            />
+            <button type="submit" className="studio-button flex-none px-2.5 text-[11px]">
+              Set
+            </button>
+          </form>
 
           <div className="flex flex-col gap-3">
             {SLIDERS.map((s) => (

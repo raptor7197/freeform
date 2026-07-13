@@ -1,43 +1,64 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import type { Widget, WidgetType } from './types';
+import { CATALOG_BY_ID, defaultConfig } from './catalog';
 
-let nextWidgetId = 4;
-
-function widgetDefaults(type: WidgetType): Pick<Widget, 'width' | 'height' | 'config'> {
-  switch (type) {
-    case 'clock':
-      return { width: 330, height: 210, config: {} };
-    case 'weather':
-      return { width: 330, height: 270, config: { city: 'San Francisco' } };
-    case 'notes':
-      return {
-        width: 400,
-        height: 480,
-        config: { text: 'Quick notes\n\nDrag me by the header. Type here to jot things down.' },
-      };
-  }
+let uidCounter = 0;
+function uid(type: string): string {
+  return `${type}-${Date.now().toString(36)}-${uidCounter++}`;
 }
 
 function makeWidget(type: WidgetType, patch: Partial<Widget> = {}): Widget {
-  const defaults = widgetDefaults(type);
+  const entry = CATALOG_BY_ID[type];
   return {
-    id: patch.id ?? `${type}-${nextWidgetId++}`,
+    id: patch.id ?? uid(type),
     type,
     x: patch.x ?? 70,
     y: patch.y ?? 70,
-    width: patch.width ?? defaults.width,
-    height: patch.height ?? defaults.height,
+    width: patch.width ?? entry?.defaultSize?.w ?? 360,
+    height: patch.height ?? entry?.defaultSize?.h ?? 300,
     zIndex: patch.zIndex ?? 1,
-    config: patch.config ?? defaults.config,
+    config: patch.config ?? (entry ? defaultConfig(entry) : {}),
   };
 }
 
-// Phase-1 default layout. Subset of the PRD OOTB layout, placed at visually
-// balanced coordinates.
+// Matches the canvas-stage size in Canvas.tsx.
+const CANVAS_W = 4000;
+const CANVAS_H = 3000;
+const GRID_STEP = 24;
+const GAP = 14; // breathing room between widgets
+
+function rectsOverlap(
+  ax: number, ay: number, aw: number, ah: number,
+  bx: number, by: number, bw: number, bh: number,
+  gap: number,
+): boolean {
+  return ax < bx + bw + gap && ax + aw + gap > bx && ay < by + bh + gap && ay + ah + gap > by;
+}
+
+/** First empty grid cell (scanning top-left to bottom-right) that fits w×h without overlapping any existing widget. */
+function findFreeSpot(existing: Widget[], w: number, h: number): { x: number; y: number } {
+  const maxX = Math.max(GRID_STEP, CANVAS_W - w - GRID_STEP);
+  const maxY = Math.max(GRID_STEP, CANVAS_H - h - GRID_STEP);
+  for (let y = GRID_STEP; y <= maxY; y += GRID_STEP) {
+    for (let x = GRID_STEP; x <= maxX; x += GRID_STEP) {
+      const free = existing.every((ex) => !rectsOverlap(x, y, w, h, ex.x, ex.y, ex.width, ex.height, GAP));
+      if (free) return { x, y };
+    }
+  }
+  // Canvas is packed solid — cascade so the widget still lands somewhere visible.
+  const offset = existing.length % 10;
+  return { x: GRID_STEP + offset * 40, y: GRID_STEP + offset * 32 };
+}
+
+// First-run layout: a taste of the catalog.
 const DEFAULT_WIDGETS: Widget[] = [
-  makeWidget('clock', { id: 'clock-1', x: 50, y: 50, zIndex: 1 }),
-  makeWidget('weather', { id: 'weather-1', x: 50, y: 280, zIndex: 2 }),
-  makeWidget('notes', { id: 'notes-1', x: 400, y: 50, zIndex: 3 }),
+  makeWidget('whiteboard', { id: 'whiteboard-1', x: 50, y: 50, zIndex: 1 }),
+  makeWidget('clock', { id: 'clock-1', x: 800, y: 50, zIndex: 2 }),
+  makeWidget('weather', { id: 'weather-1', x: 800, y: 290, zIndex: 3 }),
+  makeWidget('notes', { id: 'notes-1', x: 1160, y: 50, zIndex: 4 }),
+  makeWidget('crypto-price', { id: 'crypto-1', x: 50, y: 620, zIndex: 5 }),
+  makeWidget('hn-top', { id: 'hn-1', x: 410, y: 620, zIndex: 6 }),
 ];
 
 // CSS-filter knobs applied to the background image (not the widgets).
@@ -70,86 +91,107 @@ export function filtersToCss(f: CanvasFilters): string {
   ].join(' ');
 }
 
+export type CanvasBgKind = 'image' | 'video' | 'shader';
+
 interface DashboardState {
   widgets: Widget[];
-  canvasBg: string | null; // data URL of an uploaded background image, or null for the grid
+  canvasBg: string | null; // data URL (image) or object URL (video), or null for the grid
+  canvasBgKind: CanvasBgKind;
   canvasFilters: CanvasFilters;
   moveWidget: (id: string, x: number, y: number) => void;
   resizeWidget: (id: string, width: number, height: number) => void;
   removeWidget: (id: string) => void;
   addWidget: (type: WidgetType) => void;
+  togglePin: (id: string) => void;
   bringToFront: (id: string) => void;
   updateConfig: (id: string, patch: Record<string, unknown>) => void;
-  setCanvasBg: (url: string | null) => void;
+  setCanvasBg: (url: string | null, kind?: CanvasBgKind) => void;
   setCanvasFilters: (patch: Partial<CanvasFilters>) => void;
   resetCanvasFilters: () => void;
 }
 
-export const useDashboard = create<DashboardState>((set) => ({
-  widgets: DEFAULT_WIDGETS,
-  canvasBg: null,
-  canvasFilters: DEFAULT_FILTERS,
+export const useDashboard = create<DashboardState>()(
+  persist(
+    (set) => ({
+      widgets: DEFAULT_WIDGETS,
+      canvasBg: null,
+      canvasBgKind: 'image',
+      canvasFilters: DEFAULT_FILTERS,
 
-  setCanvasBg: (url) => set({ canvasBg: url }),
+      setCanvasBg: (url, kind = 'image') => set({ canvasBg: url, canvasBgKind: kind }),
 
-  setCanvasFilters: (patch) =>
-    set((s) => ({ canvasFilters: { ...s.canvasFilters, ...patch } })),
+      setCanvasFilters: (patch) =>
+        set((s) => ({ canvasFilters: { ...s.canvasFilters, ...patch } })),
 
-  resetCanvasFilters: () => set({ canvasFilters: DEFAULT_FILTERS }),
+      resetCanvasFilters: () => set({ canvasFilters: DEFAULT_FILTERS }),
 
-  moveWidget: (id, x, y) =>
-    set((s) => ({
-      widgets: s.widgets.map((w) => (w.id === id ? { ...w, x, y } : w)),
-    })),
+      moveWidget: (id, x, y) =>
+        set((s) => ({
+          widgets: s.widgets.map((w) => (w.id === id ? { ...w, x, y } : w)),
+        })),
 
-  resizeWidget: (id, width, height) =>
-    set((s) => ({
-      widgets: s.widgets.map((w) =>
-        w.id === id
-          ? {
-              ...w,
-              width: Math.max(240, Math.round(width)),
-              height: Math.max(170, Math.round(height)),
-            }
-          : w,
-      ),
-    })),
+      resizeWidget: (id, width, height) =>
+        set((s) => ({
+          widgets: s.widgets.map((w) =>
+            w.id === id
+              ? {
+                  ...w,
+                  width: Math.max(240, Math.round(width)),
+                  height: Math.max(170, Math.round(height)),
+                }
+              : w,
+          ),
+        })),
 
-  removeWidget: (id) =>
-    set((s) => ({
-      widgets: s.widgets.filter((w) => w.id !== id),
-    })),
+      removeWidget: (id) =>
+        set((s) => ({
+          widgets: s.widgets.filter((w) => w.id !== id),
+        })),
 
-  addWidget: (type) =>
-    set((s) => {
-      const max = Math.max(0, ...s.widgets.map((w) => w.zIndex));
-      const offset = s.widgets.length % 8;
-      return {
-        widgets: [
-          ...s.widgets,
-          makeWidget(type, {
-            x: 80 + offset * 42,
-            y: 80 + offset * 34,
-            zIndex: max + 1,
-          }),
-        ],
-      };
+      addWidget: (type) =>
+        set((s) => {
+          const max = Math.max(0, ...s.widgets.map((w) => w.zIndex));
+          const entry = CATALOG_BY_ID[type];
+          const w = entry?.defaultSize?.w ?? 360;
+          const h = entry?.defaultSize?.h ?? 300;
+          const { x, y } = findFreeSpot(s.widgets, w, h);
+          return {
+            widgets: [...s.widgets, makeWidget(type, { x, y, zIndex: max + 1 })],
+          };
+        }),
+
+      togglePin: (id) =>
+        set((s) => ({
+          widgets: s.widgets.map((w) => (w.id === id ? { ...w, pinned: !w.pinned } : w)),
+        })),
+
+      bringToFront: (id) =>
+        set((s) => {
+          const max = Math.max(0, ...s.widgets.map((w) => w.zIndex));
+          const w = s.widgets.find((x) => x.id === id);
+          if (!w || w.zIndex === max) return s; // already on top — no state churn
+          return {
+            widgets: s.widgets.map((x) => (x.id === id ? { ...x, zIndex: max + 1 } : x)),
+          };
+        }),
+
+      updateConfig: (id, patch) =>
+        set((s) => ({
+          widgets: s.widgets.map((w) =>
+            w.id === id ? { ...w, config: { ...w.config, ...patch } } : w,
+          ),
+        })),
     }),
-
-  bringToFront: (id) =>
-    set((s) => {
-      const max = Math.max(0, ...s.widgets.map((w) => w.zIndex));
-      const w = s.widgets.find((x) => x.id === id);
-      if (!w || w.zIndex === max) return s; // already on top — no state churn
-      return {
-        widgets: s.widgets.map((x) => (x.id === id ? { ...x, zIndex: max + 1 } : x)),
-      };
-    }),
-
-  updateConfig: (id, patch) =>
-    set((s) => ({
-      widgets: s.widgets.map((w) =>
-        w.id === id ? { ...w, config: { ...w.config, ...patch } } : w,
-      ),
-    })),
-}));
+    {
+      name: 'freeform-dashboard-v1',
+      partialize: (s) => ({
+        widgets: s.widgets,
+        // Video backgrounds are large blob/object URLs that die on reload
+        // anyway, so only images persist across sessions.
+        canvasBg: s.canvasBgKind === 'video' ? null : s.canvasBg,
+        canvasBgKind: s.canvasBgKind === 'video' ? 'image' : s.canvasBgKind,
+        canvasFilters: s.canvasFilters,
+      }),
+    },
+  ),
+);

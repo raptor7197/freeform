@@ -1,48 +1,57 @@
-import { useEffect, useRef, type ComponentType } from 'react';
+import { useEffect, useRef, useState, type ComponentType } from 'react';
 import interact from 'interactjs';
 import { useDashboard } from './store';
-import type { Widget as WidgetModel, WidgetType } from './types';
+import type { Widget as WidgetModel } from './types';
+import { CATALOG_BY_ID } from './catalog';
+import type { Category } from './catalog/types';
 import { Clock } from './widgets/Clock';
 import { Weather } from './widgets/Weather';
 import { Notes } from './widgets/Notes';
+import { ApiWidget } from './widgets/ApiWidget';
+import {
+  Countdown, LinkBoard, MonthCalendar, MoonPhase, Pomodoro, Stopwatch, Tally, Todo, WorldClock,
+} from './widgets/productivity';
+import { CustomApi, Embed, RssReader, StatusMonitor, WebhookButtons, WsLive } from './widgets/integrations';
+import { Whiteboard } from './widgets/Whiteboard';
+import { ConfigPanel } from './ConfigPanel';
 
-const BODIES: Record<WidgetType, ComponentType<{ widget: WidgetModel }>> = {
+// Bespoke widget bodies, keyed by CatalogEntry.builtin.
+const BUILTIN: Record<string, ComponentType<{ widget: WidgetModel }>> = {
+  whiteboard: Whiteboard,
   clock: Clock,
   weather: Weather,
   notes: Notes,
+  worldclock: WorldClock,
+  todo: Todo,
+  countdown: Countdown,
+  pomodoro: Pomodoro,
+  stopwatch: Stopwatch,
+  calendar: MonthCalendar,
+  links: LinkBoard,
+  tally: Tally,
+  moon: MoonPhase,
+  customapi: CustomApi,
+  webhook: WebhookButtons,
+  wslive: WsLive,
+  rss: RssReader,
+  embed: Embed,
+  statusmon: StatusMonitor,
 };
 
-const TITLES: Record<WidgetType, string> = {
-  clock: 'Clock',
-  weather: 'Weather',
-  notes: 'Quick Notes',
-};
-
-const ICONS: Record<WidgetType, JSX.Element> = {
-  clock: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
-      <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeWidth="2.4" />
-      <path d="M12 7v5l3 2" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2.4" />
-    </svg>
-  ),
-  weather: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
-      <circle cx="8" cy="8" r="4" fill="none" stroke="currentColor" strokeWidth="2.2" />
-      <path
-        d="M8 18h9a4 4 0 0 0 0-8 5 5 0 0 0-9.7 1.6A3.4 3.4 0 0 0 8 18Z"
-        fill="none"
-        stroke="currentColor"
-        strokeLinejoin="round"
-        strokeWidth="2.2"
-      />
-    </svg>
-  ),
-  notes: (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
-      <path d="M6 4h10l2 2v14H6Z" fill="none" stroke="currentColor" strokeWidth="2.2" />
-      <path d="M9 10h6M9 14h6" stroke="currentColor" strokeLinecap="round" strokeWidth="2.2" />
-    </svg>
-  ),
+const CATEGORY_GLYPH: Record<Category, string> = {
+  Markets: '↗',
+  Crypto: '₿',
+  News: '¶',
+  Developer: '</>',
+  Weather: '☂',
+  'Space & Science': '✦',
+  Sports: '◉',
+  Fun: '☻',
+  'Food & Drink': '♨',
+  Knowledge: '?',
+  Images: '▣',
+  Productivity: '✎',
+  Integrations: '⚡',
 };
 
 export function WidgetFrame({ widget }: { widget: WidgetModel }) {
@@ -52,7 +61,9 @@ export function WidgetFrame({ widget }: { widget: WidgetModel }) {
   const moveWidget = useDashboard((s) => s.moveWidget);
   const resizeWidget = useDashboard((s) => s.resizeWidget);
   const removeWidget = useDashboard((s) => s.removeWidget);
+  const togglePin = useDashboard((s) => s.togglePin);
   const bringToFront = useDashboard((s) => s.bringToFront);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Keep the drag baseline in sync with the committed store position so a
   // drag always starts from where the widget currently is.
@@ -62,6 +73,7 @@ export function WidgetFrame({ widget }: { widget: WidgetModel }) {
   size.current.height = widget.height;
 
   useEffect(() => {
+    if (widget.pinned) return; // pinned: no drag, no resize
     const el = ref.current!;
     const interactable = interact(el)
       .draggable({
@@ -85,7 +97,7 @@ export function WidgetFrame({ widget }: { widget: WidgetModel }) {
         modifiers: [
           interact.modifiers.restrictSize({
             min: { width: 240, height: 170 },
-            max: { width: 900, height: 720 },
+            max: { width: 1400, height: 1000 },
           }),
         ],
         listeners: {
@@ -101,9 +113,13 @@ export function WidgetFrame({ widget }: { widget: WidgetModel }) {
         },
       });
     return () => interactable.unset();
-  }, [widget.id, moveWidget, resizeWidget]);
+  }, [widget.id, widget.pinned, moveWidget, resizeWidget]);
 
-  const Body = BODIES[widget.type];
+  const entry = CATALOG_BY_ID[widget.type];
+  const title = (widget.config.title as string) || entry?.name || widget.type;
+  const glyph = entry ? CATEGORY_GLYPH[entry.category] : '?';
+  const configurable = !!entry && (!!entry.fields?.length || !!entry.api);
+  const bare = entry?.builtin === 'whiteboard'; // owns its own canvas/toolbar chrome
 
   return (
     <div
@@ -117,17 +133,46 @@ export function WidgetFrame({ widget }: { widget: WidgetModel }) {
       }}
       onPointerDown={() => bringToFront(widget.id)}
     >
-      <div className="widget-header flex-none flex items-center justify-between gap-3 border-b-2 border-brdr bg-card px-3 py-2">
-        <span className="widget-tab">
-          {ICONS[widget.type]}
-          {TITLES[widget.type]}
+      <div
+        className={`widget-header flex-none flex items-center justify-between gap-3 border-b-2 border-brdr bg-card px-3 py-2 ${widget.pinned ? '!cursor-default' : ''}`}
+      >
+        <span className="widget-tab min-w-0">
+          <span className="flex-none" aria-hidden="true">{glyph}</span>
+          <span className="truncate">{title}</span>
         </span>
-        <div className="flex items-center gap-3">
-          <span className="widget-drag-dots" aria-hidden="true" />
+        <div className="flex flex-none items-center gap-2.5">
+          {!widget.pinned && <span className="widget-drag-dots" aria-hidden="true" />}
+          <button
+            type="button"
+            className={`widget-action widget-gear widget-pin ${widget.pinned ? 'widget-pin-active' : ''}`}
+            aria-label={widget.pinned ? `Unpin ${title}` : `Pin ${title}`}
+            aria-pressed={widget.pinned ?? false}
+            title={widget.pinned ? 'Unpin (allow move/resize)' : 'Pin in place (lock move/resize)'}
+            onClick={(event) => {
+              event.stopPropagation();
+              togglePin(widget.id);
+            }}
+          >
+            📌
+          </button>
+          {configurable && (
+            <button
+              type="button"
+              className="widget-action widget-gear"
+              aria-label={`Settings for ${title}`}
+              title="Widget settings"
+              onClick={(event) => {
+                event.stopPropagation();
+                setSettingsOpen((v) => !v);
+              }}
+            >
+              ⚙
+            </button>
+          )}
           <button
             type="button"
             className="widget-action widget-close-mark"
-            aria-label={`Close ${TITLES[widget.type]}`}
+            aria-label={`Close ${title}`}
             onClick={(event) => {
               event.stopPropagation();
               removeWidget(widget.id);
@@ -135,10 +180,30 @@ export function WidgetFrame({ widget }: { widget: WidgetModel }) {
           />
         </div>
       </div>
-      <div className="flex-1 min-h-0 overflow-auto p-4">
-        <Body widget={widget} />
+      <div className={`relative flex-1 min-h-0 ${bare ? 'overflow-hidden' : 'overflow-auto p-4'}`}>
+        {settingsOpen && entry && (
+          <ConfigPanel widget={widget} entry={entry} onClose={() => setSettingsOpen(false)} />
+        )}
+        <WidgetBody widget={widget} />
       </div>
-      <div className="resize-handle" aria-hidden="true" />
+      {!widget.pinned && <div className="resize-handle" aria-hidden="true" />}
     </div>
   );
+}
+
+function WidgetBody({ widget }: { widget: WidgetModel }) {
+  const entry = CATALOG_BY_ID[widget.type];
+  if (!entry) {
+    return (
+      <div className="h-full flex items-center justify-center text-center text-sm font-bold uppercase text-muted">
+        Unknown widget "{widget.type}"
+      </div>
+    );
+  }
+  if (entry.builtin) {
+    const Body = BUILTIN[entry.builtin];
+    if (Body) return <Body widget={widget} />;
+  }
+  if (entry.api) return <ApiWidget widget={widget} entry={entry} />;
+  return <div className="h-full flex items-center justify-center text-sm font-bold uppercase text-muted">Widget has no body</div>;
 }
